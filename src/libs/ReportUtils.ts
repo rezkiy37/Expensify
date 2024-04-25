@@ -6637,9 +6637,7 @@ export {
     temporary_getMoneyRequestOptions,
     buildOptimisticInvoiceReport,
     buildOptimisticInviteReportAction,
-    isInvoiceRoom,
     getInvoiceChatByParticipants,
-    isInvoiceReport,
 };
 
 export type {
