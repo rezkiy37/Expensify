@@ -44,6 +44,7 @@ import type {
     OriginalMessageCreated,
     OriginalMessageReimbursementDequeued,
     OriginalMessageRenamed,
+    OriginalMessageRoomChangeLog,
     PaymentMethodType,
     ReimbursementDeQueuedMessage,
 } from '@src/types/onyx/OriginalMessage';
@@ -115,6 +116,8 @@ type SpendBreakdown = {
 
 type ParticipantDetails = [number, string, UserUtils.AvatarSource, UserUtils.AvatarSource];
 
+type OptimisticInviteReportAction = ReportActionBase & OriginalMessageRoomChangeLog;
+
 type OptimisticAddCommentReportAction = Pick<
     ReportAction,
     | 'reportActionID'
@@ -143,6 +146,7 @@ type OptimisticAddCommentReportAction = Pick<
     | 'childCommenterCount'
     | 'childLastVisibleActionCreated'
     | 'childOldestFourAccountIDs'
+    | 'whisperedToAccountIDs'
 > & {isOptimisticAction: boolean};
 
 type OptimisticReportAction = {
@@ -3301,6 +3305,44 @@ function getPolicyDescriptionText(policy: OnyxEntry<Policy>): string {
     return parser.htmlToText(policy.description);
 }
 
+/** Builds an optimistic reportAction for the invite message */
+function buildOptimisticInviteReportAction(invitedUserDisplayName: string, invitedUserID: number): OptimisticInviteReportAction {
+    const text = `${Localize.translateLocal('workspace.invite.invited')} ${invitedUserDisplayName}`;
+    const commentText = getParsedComment(text);
+    const parser = new ExpensiMark();
+    const currentUser = allPersonalDetails?.[currentUserAccountID ?? -1];
+
+    return {
+        reportActionID: NumberUtils.rand64(),
+        actionName: CONST.REPORT.ACTIONS.TYPE.ROOM_CHANGE_LOG.INVITE_TO_ROOM,
+        actorAccountID: currentUserAccountID,
+        person: [
+            {
+                style: 'strong',
+                text: currentUser?.displayName ?? currentUserEmail,
+                type: 'TEXT',
+            },
+        ],
+        automatic: false,
+        avatar: currentUser?.avatar ?? UserUtils.getDefaultAvatarURL(currentUserAccountID),
+        created: DateUtils.getDBTime(),
+        message: [
+            {
+                type: CONST.REPORT.MESSAGE.TYPE.COMMENT,
+                html: commentText,
+                text: parser.htmlToText(commentText),
+            },
+        ],
+        originalMessage: {
+            targetAccountIDs: [invitedUserID],
+        },
+        isFirstItem: false,
+        pendingAction: CONST.RED_BRICK_ROAD_PENDING_ACTION.ADD,
+        shouldShow: true,
+        isOptimisticAction: true,
+    };
+}
+
 function buildOptimisticAddCommentReportAction(text?: string, file?: FileObject, actorAccountID?: number, createdOffset = 0, shouldEscapeText?: boolean): OptimisticReportAction {
     const parser = new ExpensiMark();
     const commentText = getParsedComment(text ?? '', shouldEscapeText);
@@ -3537,6 +3579,29 @@ function populateOptimisticReportFormula(formula: string, report: OptimisticExpe
         .replaceAll(/\{report:(.+)}/g, '');
 
     return result.trim().length ? result : formula;
+}
+
+/** Builds an optimistic invoice report with a randomly generated reportID */
+function buildOptimisticInvoiceReport(chatReportID: string, policyID: string, receiverAccountID: number, receiverName: string, total: number, currency: string): OptimisticExpenseReport {
+    const formattedTotal = CurrencyUtils.convertToDisplayString(total, currency);
+
+    return {
+        reportID: generateReportID(),
+        chatReportID,
+        policyID,
+        type: CONST.REPORT.TYPE.INVOICE,
+        ownerAccountID: currentUserAccountID,
+        managerID: receiverAccountID,
+        currency,
+        // We don’t translate reportName because the server response is always in English
+        reportName: `${receiverName} owes ${formattedTotal}`,
+        stateNum: CONST.REPORT.STATE_NUM.OPEN,
+        statusNum: CONST.REPORT.STATUS_NUM.OPEN,
+        total,
+        notificationPreference: CONST.REPORT.NOTIFICATION_PREFERENCE.HIDDEN,
+        parentReportID: chatReportID,
+        lastVisibleActionCreated: DateUtils.getDBTime(),
+    };
 }
 
 /**
@@ -4177,7 +4242,7 @@ function buildOptimisticChatReport(
     }, {} as Participants);
     const currentTime = DateUtils.getDBTime();
     const isNewlyCreatedWorkspaceChat = chatType === CONST.REPORT.CHAT_TYPE.POLICY_EXPENSE_CHAT && isOwnPolicyExpenseChat;
-    return {
+    const optimisticChatReport: OptimisticChatReport = {
         isOptimisticReport: true,
         type: CONST.REPORT.TYPE.CHAT,
         chatType,
@@ -4209,6 +4274,16 @@ function buildOptimisticChatReport(
         writeCapability,
         avatarUrl,
     };
+
+    if (chatType === CONST.REPORT.CHAT_TYPE.INVOICE) {
+        // TODO: update to support workspace as an invoice receiver when workspace-to-workspace invoice room implemented
+        optimisticChatReport.invoiceReceiver = {
+            type: 'individual',
+            accountID: participantList[0],
+        };
+    }
+
+    return optimisticChatReport;
 }
 
 function buildOptimisticGroupChatReport(participantAccountIDs: number[], reportName: string, avatarUri: string, optimisticReportID?: string) {
@@ -4996,6 +5071,26 @@ function getChatByParticipants(newParticipantList: number[], reports: OnyxCollec
 
             // Only return the chat if it has all the participants
             return lodashIsEqual(sortedNewParticipantList, report.participantAccountIDs?.sort());
+        }) ?? null
+    );
+}
+
+/**
+ * Attempts to find an invoice chat report in onyx with the provided policyID and receiverID.
+ */
+function getInvoiceChatByParticipants(policyID: string, receiverID: string | number, reports: OnyxCollection<Report> = allReports): OnyxEntry<Report> {
+    return (
+        Object.values(reports ?? {}).find((report) => {
+            if (!report || !isInvoiceRoom(report)) {
+                return false;
+            }
+
+            const isSameReceiver =
+                report.invoiceReceiver &&
+                (('accountID' in report.invoiceReceiver && report.invoiceReceiver.accountID === receiverID) ||
+                    ('policyID' in report.invoiceReceiver && report.invoiceReceiver.policyID === receiverID));
+
+            return report.policyID === policyID && isSameReceiver;
         }) ?? null
     );
 }
@@ -6540,6 +6635,11 @@ export {
     updateOptimisticParentReportAction,
     updateReportPreview,
     temporary_getMoneyRequestOptions,
+    buildOptimisticInvoiceReport,
+    buildOptimisticInviteReportAction,
+    isInvoiceRoom,
+    getInvoiceChatByParticipants,
+    isInvoiceReport,
 };
 
 export type {
@@ -6554,4 +6654,5 @@ export type {
     OptimisticTaskReportAction,
     OptionData,
     TransactionDetails,
+    OptimisticInviteReportAction,
 };

@@ -31,6 +31,7 @@ import * as DeviceCapabilities from '@libs/DeviceCapabilities';
 import Navigation from '@libs/Navigation/Navigation';
 import * as OptionsListUtils from '@libs/OptionsListUtils';
 import variables from '@styles/variables';
+import * as Policy from '@userActions/Policy';
 import * as Report from '@userActions/Report';
 import CONST from '@src/CONST';
 import ONYXKEYS from '@src/ONYXKEYS';
@@ -80,6 +81,7 @@ function MoneyTemporaryForRefactorRequestParticipantsSelector({participants, onF
     const {canUseP2PDistanceRequests} = usePermissions();
     const {didScreenTransitionEnd} = useScreenWrapperTranstionStatus();
     const [betas] = useOnyx(ONYXKEYS.BETAS);
+    const [activePolicyID] = useOnyx(ONYXKEYS.NVP_ACTIVE_POLICY_ID);
     const {options, areOptionsInitialized} = useOptionsList({
         shouldInitialize: didScreenTransitionEnd,
     });
@@ -91,6 +93,8 @@ function MoneyTemporaryForRefactorRequestParticipantsSelector({participants, onF
 
     const isIOUSplit = iouType === CONST.IOU.TYPE.SPLIT;
     const isCategorizeOrShareAction = [CONST.IOU.ACTION.CATEGORIZE, CONST.IOU.ACTION.SHARE].includes(action);
+
+    const shouldShowReferralBanner = !isDismissed && iouType !== CONST.IOU.TYPE.INVOICE;
 
     useEffect(() => {
         Report.searchInServer(debouncedSearchTerm.trim());
@@ -201,13 +205,26 @@ function MoneyTemporaryForRefactorRequestParticipantsSelector({participants, onF
      */
     const addSingleParticipant = useCallback(
         (option) => {
-            onParticipantsAdded([
+            const newParticipants = [
                 {
                     ...lodashPick(option, 'accountID', 'login', 'isPolicyExpenseChat', 'reportID', 'searchText', 'policyID'),
                     selected: true,
                     iouType,
                 },
-            ]);
+            ];
+
+            if (iouType === CONST.IOU.TYPE.INVOICE) {
+                const primaryPolicy = Policy.getPrimaryPolicy(activePolicyID);
+
+                newParticipants.push({
+                    policyID: primaryPolicy.id,
+                    isSender: true,
+                    selected: false,
+                    iouType,
+                });
+            }
+
+            onParticipantsAdded(newParticipants);
             onFinish();
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps -- we don't want to trigger this callback when iouType changes
@@ -278,8 +295,7 @@ function MoneyTemporaryForRefactorRequestParticipantsSelector({participants, onF
     // canUseP2PDistanceRequests is true if the iouType is track expense, but we don't want to allow splitting distance with track expense yet
     const isAllowedToSplit =
         (canUseP2PDistanceRequests || iouRequestType !== CONST.IOU.REQUEST_TYPE.DISTANCE) &&
-        iouType !== CONST.IOU.TYPE.PAY &&
-        iouType !== CONST.IOU.TYPE.TRACK &&
+        ![CONST.IOU.TYPE.PAY, CONST.IOU.TYPE.TRACK, CONST.IOU.TYPE.INVOICE].includes(iouType) &&
         ![CONST.IOU.ACTION.SHARE, CONST.IOU.ACTION.SUBMIT, CONST.IOU.ACTION.CATEGORIZE].includes(action);
 
     const handleConfirmSelection = useCallback(
@@ -306,7 +322,7 @@ function MoneyTemporaryForRefactorRequestParticipantsSelector({participants, onF
 
         return (
             <>
-                {!isDismissed && (
+                {shouldShowReferralBanner && (
                     <ReferralProgramCTA
                         referralContentType={referralContentType}
                         style={[styles.flexShrink0, !!participants.length && !shouldShowSplitBillErrorMessage && styles.mb5]}
@@ -333,7 +349,7 @@ function MoneyTemporaryForRefactorRequestParticipantsSelector({participants, onF
                 )}
             </>
         );
-    }, [handleConfirmSelection, participants.length, isDismissed, referralContentType, shouldShowSplitBillErrorMessage, styles, translate]);
+    }, [handleConfirmSelection, participants.length, isDismissed, referralContentType, shouldShowSplitBillErrorMessage, styles, translate, shouldShowReferralBanner]);
 
     const renderEmptyWorkspaceView = () => (
         <>

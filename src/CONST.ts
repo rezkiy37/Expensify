@@ -1457,6 +1457,7 @@ const CONST = {
             INVOICE: 'invoice',
             SUBMIT: 'submit',
             TRACK: 'track',
+            INVOICE: 'invoice',
         },
         REQUEST_TYPE: {
             DISTANCE: 'distance',
