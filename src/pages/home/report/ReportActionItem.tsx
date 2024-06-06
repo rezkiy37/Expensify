@@ -21,17 +21,13 @@ import RenderHTML from '@components/RenderHTML';
 import type {ActionableItem} from '@components/ReportActionItem/ActionableItemButtons';
 import ActionableItemButtons from '@components/ReportActionItem/ActionableItemButtons';
 import ChronosOOOListActions from '@components/ReportActionItem/ChronosOOOListActions';
-import MoneyReportView from '@components/ReportActionItem/MoneyReportView';
 import MoneyRequestAction from '@components/ReportActionItem/MoneyRequestAction';
-import MoneyRequestView from '@components/ReportActionItem/MoneyRequestView';
 import RenameAction from '@components/ReportActionItem/RenameAction';
 import ReportPreview from '@components/ReportActionItem/ReportPreview';
 import TaskAction from '@components/ReportActionItem/TaskAction';
 import TaskPreview from '@components/ReportActionItem/TaskPreview';
-import TaskView from '@components/ReportActionItem/TaskView';
 import TripDetailsView from '@components/ReportActionItem/TripDetailsView';
 import {ShowContextMenuContext} from '@components/ShowContextMenuContext';
-import SpacerView from '@components/SpacerView';
 import Text from '@components/Text';
 import UnreadActionIndicator from '@components/UnreadActionIndicator';
 import useLocalize from '@hooks/useLocalize';
@@ -52,7 +48,6 @@ import * as PersonalDetailsUtils from '@libs/PersonalDetailsUtils';
 import * as ReportActionsUtils from '@libs/ReportActionsUtils';
 import * as ReportUtils from '@libs/ReportUtils';
 import SelectionScraper from '@libs/SelectionScraper';
-import * as TransactionUtils from '@libs/TransactionUtils';
 import {ReactionListContext} from '@pages/home/ReportScreenContext';
 import * as BankAccounts from '@userActions/BankAccounts';
 import * as EmojiPickerAction from '@userActions/EmojiPickerAction';
@@ -62,20 +57,18 @@ import * as ReportActions from '@userActions/ReportActions';
 import * as Session from '@userActions/Session';
 import * as User from '@userActions/User';
 import CONST from '@src/CONST';
-import type {TranslationPaths} from '@src/languages/types';
 import ONYXKEYS from '@src/ONYXKEYS';
 import ROUTES from '@src/ROUTES';
 import type * as OnyxTypes from '@src/types/onyx';
 import type {Errors} from '@src/types/onyx/OnyxCommon';
 import {isEmptyObject} from '@src/types/utils/EmptyObject';
-import AnimatedEmptyStateBackground from './AnimatedEmptyStateBackground';
 import {RestrictedReadOnlyContextMenuActions} from './ContextMenu/ContextMenuActions';
 import MiniReportActionContextMenu from './ContextMenu/MiniReportActionContextMenu';
 import * as ReportActionContextMenu from './ContextMenu/ReportActionContextMenu';
 import {hideContextMenu} from './ContextMenu/ReportActionContextMenu';
 import LinkPreviewer from './LinkPreviewer';
 import ReportActionItemBasicMessage from './ReportActionItemBasicMessage';
-import ReportActionItemCreated from './ReportActionItemCreated';
+import ReportActionItemContentCreated from './ReportActionItemContentCreated';
 import ReportActionItemDraft from './ReportActionItemDraft';
 import ReportActionItemGrouped from './ReportActionItemGrouped';
 import ReportActionItemMessage from './ReportActionItemMessage';
@@ -214,7 +207,6 @@ function ReportActionItem({
     const originalReportID = ReportUtils.getOriginalReportID(report.reportID, action);
     const originalReport = report.reportID === originalReportID ? report : ReportUtils.getReport(originalReportID);
     const isReportActionLinked = linkedReportActionID && action.reportActionID && linkedReportActionID === action.reportActionID;
-    const transactionCurrency = TransactionUtils.getCurrency(transaction);
     const reportScrollManager = useReportScrollManager();
     const isActionableWhisper =
         ReportActionsUtils.isActionableMentionWhisper(action) || ReportActionsUtils.isActionableTrackExpense(action) || ReportActionsUtils.isActionableReportMentionWhisper(action);
@@ -487,22 +479,6 @@ function ReportActionItem({
         ];
     }, [action, isActionableWhisper, report.reportID]);
 
-    const renderThreadDivider = useMemo(
-        () =>
-            shouldHideThreadDividerLine ? (
-                <UnreadActionIndicator
-                    reportActionID={report.reportID}
-                    shouldHideThreadDividerLine={shouldHideThreadDividerLine}
-                />
-            ) : (
-                <SpacerView
-                    shouldShow={!shouldHideThreadDividerLine}
-                    style={[!shouldHideThreadDividerLine ? styles.reportHorizontalRule : {}]}
-                />
-            ),
-        [shouldHideThreadDividerLine, styles.reportHorizontalRule, report.reportID],
-    );
-
     /**
      * Get the content of ReportActionItem
      * @param hovered whether the ReportActionItem is hovered
@@ -723,6 +699,8 @@ function ReportActionItem({
                                         Session.signOutAndRedirectToSignIn();
                                     });
                                 } else {
+                                    // TODO: Remove toggleEmojiReaction and use the new API
+                                    // Report.toggleEmojiReaction(report.reportID, action, emoji, emojiReactions);
                                     toggleReaction(emoji);
                                 }
                             }}
@@ -798,113 +776,17 @@ function ReportActionItem({
     }
 
     if (action.actionName === CONST.REPORT.ACTIONS.TYPE.CREATED) {
-        if (ReportActionsUtils.isTransactionThread(parentReportAction)) {
-            const isReversedTransaction = ReportActionsUtils.isReversedTransaction(parentReportAction);
-            if (ReportActionsUtils.isDeletedParentAction(parentReportAction) || isReversedTransaction) {
-                let message: TranslationPaths;
-                if (isReversedTransaction) {
-                    message = 'parentReportAction.reversedTransaction';
-                } else {
-                    message = 'parentReportAction.deletedExpense';
-                }
-                return (
-                    <View style={[styles.pRelative]}>
-                        <AnimatedEmptyStateBackground />
-                        <OfflineWithFeedback pendingAction={parentReportAction?.pendingAction ?? null}>
-                            <ReportActionItemSingle
-                                action={parentReportAction}
-                                showHeader
-                                report={report}
-                            >
-                                <RenderHTML html={`<comment>${translate(message)}</comment>`} />
-                            </ReportActionItemSingle>
-                            <View style={styles.threadDividerLine} />
-                        </OfflineWithFeedback>
-                    </View>
-                );
-            }
-            return (
-                <ShowContextMenuContext.Provider value={contextValue}>
-                    <View>
-                        <MoneyRequestView
-                            report={report}
-                            shouldShowAnimatedBackground
-                        />
-                        {renderThreadDivider}
-                    </View>
-                </ShowContextMenuContext.Provider>
-            );
-        }
-        if (ReportUtils.isTaskReport(report)) {
-            if (ReportUtils.isCanceledTaskReport(report, parentReportAction)) {
-                return (
-                    <View style={[styles.pRelative]}>
-                        <AnimatedEmptyStateBackground />
-                        <OfflineWithFeedback pendingAction={parentReportAction?.pendingAction}>
-                            <ReportActionItemSingle
-                                action={parentReportAction}
-                                showHeader={draftMessage === undefined}
-                                report={report}
-                            >
-                                <RenderHTML html={`<comment>${translate('parentReportAction.deletedTask')}</comment>`} />
-                            </ReportActionItemSingle>
-                        </OfflineWithFeedback>
-                        <View style={styles.reportHorizontalRule} />
-                    </View>
-                );
-            }
-            return (
-                <View style={[styles.pRelative]}>
-                    <AnimatedEmptyStateBackground />
-                    <View>
-                        <TaskView report={report} />
-                        {renderThreadDivider}
-                    </View>
-                </View>
-            );
-        }
-
-        if (ReportUtils.isExpenseReport(report) || ReportUtils.isIOUReport(report) || ReportUtils.isInvoiceReport(report)) {
-            return (
-                <OfflineWithFeedback pendingAction={action.pendingAction}>
-                    {transactionThreadReport && !isEmptyObject(transactionThreadReport) ? (
-                        <>
-                            {transactionCurrency !== report.currency && (
-                                <>
-                                    <MoneyReportView
-                                        report={report}
-                                        policy={policy}
-                                    />
-                                    {renderThreadDivider}
-                                </>
-                            )}
-                            <ShowContextMenuContext.Provider value={contextValue}>
-                                <View>
-                                    <MoneyRequestView
-                                        report={transactionThreadReport}
-                                        shouldShowAnimatedBackground={transactionCurrency === report.currency}
-                                    />
-                                    {renderThreadDivider}
-                                </View>
-                            </ShowContextMenuContext.Provider>
-                        </>
-                    ) : (
-                        <>
-                            <MoneyReportView
-                                report={report}
-                                policy={policy}
-                            />
-                            {renderThreadDivider}
-                        </>
-                    )}
-                </OfflineWithFeedback>
-            );
-        }
-
         return (
-            <ReportActionItemCreated
-                reportID={report.reportID}
-                policyID={report.policyID}
+            <ReportActionItemContentCreated
+                report={report}
+                action={action}
+                parentReportAction={parentReportAction}
+                contextValue={contextValue}
+                draftMessage={draftMessage}
+                shouldHideThreadDividerLine={shouldHideThreadDividerLine}
+                transaction={transaction}
+                transactionThreadReport={transactionThreadReport}
+                policy={policy}
             />
         );
     }
