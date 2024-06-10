@@ -1,5 +1,5 @@
 import {useNavigation, useNavigationState} from '@react-navigation/native';
-import React, {useEffect} from 'react';
+import React, {memo, useEffect} from 'react';
 import {View} from 'react-native';
 import type {OnyxEntry} from 'react-native-onyx';
 import {withOnyx} from 'react-native-onyx';
@@ -127,4 +127,4 @@ export default withOnyx<PurposeForUsingExpensifyModalProps, PurposeForUsingExpen
     isLoadingApp: {
         key: ONYXKEYS.IS_LOADING_APP,
     },
-})(BottomTabBar);
+})(memo(BottomTabBar));
