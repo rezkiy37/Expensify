@@ -51,7 +51,7 @@ import SelectionScraper from '@libs/SelectionScraper';
 import {ReactionListContext} from '@pages/home/ReportScreenContext';
 import * as BankAccounts from '@userActions/BankAccounts';
 import * as EmojiPickerAction from '@userActions/EmojiPickerAction';
-import * as Policy from '@userActions/Policy/Policy';
+import * as Member from '@userActions/Policy/Member';
 import * as Report from '@userActions/Report';
 import * as ReportActions from '@userActions/ReportActions';
 import * as Session from '@userActions/Session';
@@ -61,6 +61,7 @@ import ONYXKEYS from '@src/ONYXKEYS';
 import ROUTES from '@src/ROUTES';
 import type * as OnyxTypes from '@src/types/onyx';
 import type {Errors} from '@src/types/onyx/OnyxCommon';
+import type {JoinWorkspaceResolution} from '@src/types/onyx/OriginalMessage';
 import {isEmptyObject} from '@src/types/utils/EmptyObject';
 import {RestrictedReadOnlyContextMenuActions} from './ContextMenu/ContextMenuActions';
 import MiniReportActionContextMenu from './ContextMenu/MiniReportActionContextMenu';
@@ -364,7 +365,7 @@ function ReportActionItem({
             return;
         }
 
-        if (prevActionResolution !== (action.originalMessage.resolution ?? null)) {
+        if (prevActionResolution !== action.originalMessage.resolution) {
             reportScrollManager.scrollToIndex(index);
         }
     }, [index, action, prevActionResolution, reportScrollManager, isActionableWhisper]);
@@ -390,7 +391,7 @@ function ReportActionItem({
     const attachmentContextValue = useMemo(() => ({reportID: report.reportID, type: CONST.ATTACHMENT_TYPE.REPORT}), [report.reportID]);
 
     const actionableItemButtons: ActionableItem[] = useMemo(() => {
-        if (!isActionableWhisper && (!ReportActionsUtils.isActionableJoinRequest(action) || action.originalMessage.choice !== '')) {
+        if (!isActionableWhisper && (!ReportActionsUtils.isActionableJoinRequest(action) || action.originalMessage.choice !== ('' as JoinWorkspaceResolution))) {
             return [];
         }
 
@@ -437,13 +438,13 @@ function ReportActionItem({
                 {
                     text: 'actionableMentionJoinWorkspaceOptions.accept',
                     key: `${action.reportActionID}-actionableMentionJoinWorkspace-${CONST.REPORT.ACTIONABLE_MENTION_JOIN_WORKSPACE_RESOLUTION.ACCEPT}`,
-                    onPress: () => Policy.acceptJoinRequest(report.reportID, action),
+                    onPress: () => Member.acceptJoinRequest(report.reportID, action),
                     isPrimary: true,
                 },
                 {
                     text: 'actionableMentionJoinWorkspaceOptions.decline',
                     key: `${action.reportActionID}-actionableMentionJoinWorkspace-${CONST.REPORT.ACTIONABLE_MENTION_JOIN_WORKSPACE_RESOLUTION.DECLINE}`,
-                    onPress: () => Policy.declineJoinRequest(report.reportID, action),
+                    onPress: () => Member.declineJoinRequest(report.reportID, action),
                 },
             ];
         }
@@ -493,11 +494,11 @@ function ReportActionItem({
         if (
             isIOUReport(action) &&
             action.originalMessage &&
-            // For the pay flow, we only want to show MoneyRequestAction when sending money and we're not in the combine report. Otherwise, we display a regular system message
+            // For the pay flow, we only want to show MoneyRequestAction when sending money. When paying, we display a regular system message
             (action.originalMessage.type === CONST.IOU.REPORT_ACTION_TYPE.CREATE ||
                 action.originalMessage.type === CONST.IOU.REPORT_ACTION_TYPE.SPLIT ||
                 action.originalMessage.type === CONST.IOU.REPORT_ACTION_TYPE.TRACK ||
-                (isSendingMoney && !transactionThreadReport?.reportID))
+                isSendingMoney)
         ) {
             // There is no single iouReport for bill splits, so only 1:1 requests require an iouReportID
             const iouReportID = action.originalMessage.IOUReportID ? action.originalMessage.IOUReportID.toString() : '0';
